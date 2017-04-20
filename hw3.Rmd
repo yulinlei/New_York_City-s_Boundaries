@@ -1,0 +1,83 @@
+---
+title: "NYC Boroughs"
+author: "Drew Jordan, Howard Liu, Yulin Lei, Yang Chen"
+date: "October 31, 2015"
+output: html_document
+---
+**TASK 1**\newline
+\newline
+In order to geocode the NYC 311 calls, we first needed to reduce the number of variables in the dataset in order to reduce the time it takes to process our code for the remainder of the assignment. To do this, we selected only those columns from the 311 data that we felt were necessary to proceed with geocoding and the rest of our analysis. The variables from the original data frame that we chose to keep are Unique.Key, Location.Type, Incident.Zip, Incident.Address, Intersection.Street.1, Intersection.Street.2, Address.Type, City, Borough, and Complaint.Type. Selecting only these variables significantly reduced the size of our data set.\newline
+\newline
+In order to geocode the 311 data, it was necessary to merge the data with the pluto data containing the longitudes and latitudes of each address in NYC. For this merge to work, we needed both the NYC data and the Pluto data to have the same exact format for their addresses. The biggest difference between the two datasets was that the NYC data oftentimes abbreviated the last word of an address (such as "RD" instead of "ROAD"), whereas the pluto data did not. To reconcile this difference, we found every unique last word from the NYC data and replaced as many as possible with the full word instead of the abbreviation. Doing this allowed us to match approximately 60% of the 311 data with the pluto data. This was more than enough to proceed with our analysis. We proceed for the entirety of our analysis using a random sample of 500k observations from our original 311 data set, which netted us around 300k points to run our analysis on. We then assigned the boroughs from the pluto data to our 311 data for consistency.
+
+**TASK 2**\newline
+\newline
+The second task in this analysis was to reconstruct the boundaries of the 5 boroughs using the data from our cleaned and merged NYC 311 data. In order to do this, we opted to use an SVM with a radial kernel and a cost of 1500. We chose these options because they gave us the best approximations for the boroughs. In order to not capture regions outside of NYC, we also created a new "borough" called ocean in which we hand selected various points from around the boroughs of NYC and included them in our SVM. This produced a 6th region that nicely surrounded the 5 boroughs of NYC. We then modeled a SVM on these 6 regions, used this SVM model to predict the boroughs over a raster we created that spanned the longitudes and latitudes of NYC, and converted the predicted boroughs to polygons to create our geoJson file. Here is a plot of the boroughs we predicted:
+
+```{r,echo = FALSE}
+library(e1071)
+library("dplyr")
+library(rgdal)
+library(rgeos)
+library(sp)
+library(raster)
+library(maptools)
+
+load("raster.Rdata")
+load("nyc_merged_clean.Rdata")
+
+plot(r)
+points(merge_sample$lon,merge_sample$lat,pch=16,cex=0.1) ## dump in points
+```
+
+**TASK 3**\newline
+\newline
+Finally, we wished to produce a novel visualization of the data. We chose to plot density contours of three of the most common complaints in the 311 data: Noise, Sewer, and Illegal parking. We plot these densities on a map of NYC:
+```{r, echo= FALSE}
+## Map
+library(geosphere)
+library(ggplot2)
+library(ggmap) # for some reason we cannot install ggmap
+# library(plyr)
+library(RgoogleMaps)
+library(dplyr)
+
+load("nyc_merged_clean.Rdata")
+# merge_sample= merge_sample[-c(61896:61919),] ## get rid of NA
+merge_sample = merge_sample %>%
+  filter(Borough != "ocean")
+
+nyc1 = merge_sample[,c("Complaint.Type","lon","lat")]
+nyc_noise = nyc1[nyc1$Complaint.Type=="Noise",]
+nyc_sewer = nyc1[nyc1$Complaint.Type=="Sewer",]
+nyc_park = nyc1[nyc1$Complaint.Type=="Illegal Parking",]
+
+
+## heat map
+nyc <- get_map("new york city", zoom = 10)
+nycMap <- ggmap(nyc, extent = "device", legend = "topleft")
+#nycMap +
+ # stat_density2d(
+  #aes(x = lon, y = lat, fill = Complaint.Type),
+  #size = 2, bins = 4, data = nyc_sewer,
+  #geom = "polygon"
+  #)
+
+nycMap +
+  stat_density2d(
+  aes(x = lon, y = lat, fill =Complaint.Type, alpha = ..level..),
+  size = 2, bins = 4, data = nyc_park,
+  geom = "polygon"
+  ) +
+  stat_density2d(
+  aes(x = lon, y = lat, fill =Complaint.Type, alpha = ..level..),
+  size = 2, bins = 4, data = nyc_sewer,
+  geom = "polygon"
+  ) +
+  stat_density2d(
+  aes(x = lon, y = lat, fill =Complaint.Type, alpha = ..level..),
+  size = 2, bins = 4, data = nyc_noise,
+  geom = "polygon"
+  )
+```
+We can see that Illegal Parking is concentrated in Brooklyn, Noise is concentrated in Brooklyn and Manhattan, and Sewer complaints are concentrated in Queens.
